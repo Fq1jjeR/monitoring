@@ -1,0 +1,85 @@
+  services:
+    db:
+      image: postgres:16-alpine
+      environment:
+        POSTGRES_USER: zabbix
+        POSTGRES_PASSWORD: zabbix_pass
+        POSTGRES_DB: zabbix
+      volumes:
+        - pgdata:/var/lib/postgresql/data
+      networks: [monitoring]
+      deploy:
+        replicas: 1
+        restart_policy:
+          condition: on-failure
+    server:
+      image: zabbix/zabbix-server-pgsql:alpine-7.0-latest
+      environment:
+        DB_SERVER_HOST: db
+        POSTGRES_USER: zabbix
+        POSTGRES_PASSWORD: zabbix_pass
+        POSTGRES_DB: zabbix
+        ZBX_SNMPTRAPPER: "true"
+      ports:
+        - "10051:10051"
+      volumes:
+        - snmptraps:/var/lib/zabbix/snmptraps
+      depends_on: [db]
+      networks: [monitoring]
+      deploy:
+        replicas: 1
+        restart_policy:
+          condition: on-failure
+    web:
+      image: zabbix/zabbix-web-nginx-pgsql:alpine-7.0-latest
+      environment:
+        DB_SERVER_HOST: db
+        POSTGRES_USER: zabbix
+        POSTGRES_PASSWORD: zabbix_pass
+        ZBX_SERVER_HOST: server
+        PHP_TZ: Europe/Moscow
+      depends_on: [server]
+      networks: [monitoring]
+      deploy:
+        replicas: 1
+        restart_policy:
+          condition: on-failure
+    snmptraps:
+      image: zabbix/zabbix-snmptraps:alpine-7.0-latest
+      ports:
+        - "162:162/udp"
+      volumes:
+        - snmptraps:/var/lib/zabbix/snmptraps
+      networks: [monitoring]
+      deploy:
+        replicas: 1
+        restart_policy:
+          condition: on-failure
+    sim:
+      image: ${REGISTRY:-localhost:5000}/monitoring-sim:latest
+      environment:
+        ZBX_HOSTNAME: sim-router
+        ZBX_SERVER_HOST: server
+      networks: [monitoring]
+      deploy:
+        replicas: 1
+        restart_policy:
+          condition: on-failure
+    proxy:
+      image: nginx:alpine
+      ports:
+        - "80:80"
+      volumes:
+        - ./proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+      depends_on: [web]
+      networks: [monitoring]
+      deploy:
+        replicas: 1
+        restart_policy:
+          condition: on-failure
+  networks:
+    monitoring:
+      driver: overlay
+  volumes:
+    pgdata:
+    snmptraps:
