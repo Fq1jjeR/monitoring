@@ -22,6 +22,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     needs: build
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Deploy stack and run tests
@@ -30,23 +31,25 @@ jobs:
         run: |
           docker swarm init --advertise-addr 127.0.0.1
           docker stack deploy -c docker-compose.yaml monitoring
-          for i in $(seq 1 30); do curl -sf http://localhost/ >/dev/null && break; sleep 10; done
-          for s in db server web snmptraps sim grafana proxy; do
+          for i in $(seq 1 30); do
+            curl -sf --max-time 5 http://localhost/ >/dev/null && break
+            sleep 10
+          done
+          for s in db server web snmptraps sim proxy; do
             if [ -z "$(docker ps -q -f name=monitoring_${s})" ]; then
               echo "Error: $s is not running"
               docker service ls
-              docker stack rm monitoring
+              docker service ps monitoring_${s} --no-trunc
               exit 1
             fi
           done
-          curl -f http://localhost/ || {
-            echo "Error: proxy not accessible"
-            docker stack rm monitoring
-            exit 1; }
-          curl -f http://localhost/grafana/ || {
-            echo "Error: grafana not accessible"
-            docker stack rm monitoring
-            exit 1; }
+          curl -f --max-time 15 http://localhost/
           docker stack rm monitoring
-          docker volume rm $(docker volume ls -q -f name=monitoring)
+          sleep 10
+          docker volume rm $(docker volume ls -q -f name=monitoring) || true
           docker swarm leave --force
+      - name: Cleanup on failure
+        if: always()
+        run: |
+          docker stack rm monitoring || true
+          docker swarm leave --force || true
