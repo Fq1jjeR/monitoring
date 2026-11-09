@@ -32,7 +32,7 @@ jobs:
           docker swarm init --advertise-addr 127.0.0.1
           docker stack deploy -c docker-compose.yaml monitoring
           for i in $(seq 1 30); do
-            PROXY_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$(docker ps -q -f name=monitoring_proxy)" 2>/dev/null | head -n 1)
+            PROXY_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$(docker ps -q -f name=monitoring_proxy)" 2>/dev/null | awk '{print $1}')
             if [ -n "$PROXY_IP" ] && curl -sf --max-time 5 "http://$PROXY_IP/" >/dev/null; then
               echo "Proxy is up at $PROXY_IP"
               break
@@ -47,7 +47,7 @@ jobs:
               exit 1
             fi
           done
-          PROXY_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$(docker ps -q -f name=monitoring_proxy)")
+          PROXY_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$(docker ps -q -f name=monitoring_proxy)" | awk '{print $1}')
           echo "Control request to proxy at $PROXY_IP"
           curl -f --max-time 15 "http://$PROXY_IP/"
           docker stack rm monitoring
@@ -59,5 +59,3 @@ jobs:
         run: |
           docker stack rm monitoring || true
           docker swarm leave --force || true
-
-          
