@@ -31,19 +31,33 @@ jobs:
         run: |
           docker swarm init --advertise-addr 127.0.0.1
           docker stack deploy -c docker-compose.yaml monitoring
-          for i in $(seq 1 30); do
+          for i in $(seq 1 24); do
             PROXY_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$(docker ps -q -f name=monitoring_proxy)" 2>/dev/null | awk '{print $1}')
             if [ -n "$PROXY_IP" ] && curl -sf --max-time 5 "http://$PROXY_IP/" >/dev/null; then
-              echo "Proxy is up at $PROXY_IP"
+              echo "Proxy is up at $PROXY_IP after attempt $i"
               break
             fi
+            echo "attempt $i: proxy not ready yet"
             sleep 10
           done
+          echo "--- docker ps -a ---"
+          docker ps -a --format 'table {{.Names}}\t{{.Status}}'
+          echo "--- service tasks ---"
+          for s in db server web snmptraps sim proxy; do
+            echo "== monitoring_${s} =="
+            docker service ps monitoring_${s} --format '{{.Name}}  {{.CurrentState}}  {{.Error}}'
+          done
+          echo "--- proxy logs ---"
+          docker logs --tail 30 "$(docker ps -aq -f name=monitoring_proxy)" 2>&1 || true
+          echo "--- web logs ---"
+          docker logs --tail 30 "$(docker ps -aq -f name=monitoring_web)" 2>&1 || true
+          echo "--- direct web check ---"
+          WEB_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$(docker ps -q -f name=monitoring_web)" 2>/dev/null | awk '{print $1}')
+          echo "web container IP: $WEB_IP"
+          curl -s --max-time 10 -o /dev/null -w 'web http code: %{http_code}\n' "http://$WEB_IP:8080/" || true
           for s in db server web snmptraps sim proxy; do
             if [ -z "$(docker ps -q -f name=monitoring_${s})" ]; then
               echo "Error: $s is not running"
-              docker service ls
-              docker service ps monitoring_${s} --no-trunc
               exit 1
             fi
           done
